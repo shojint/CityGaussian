@@ -437,44 +437,50 @@ class Viewer:
 
                 self.detection_confidence_slider = server.add_gui_slider(
                     "Detection Confidence",
-                    min=0.1,
+                    min=0.0,
                     max=1.0,
-                    step=0.05,
+                    step=0.01,
                     initial_value=0.25,
                     hint="Minimum confidence threshold for detections"
                 )
-                self.detection_confidence_slider.on_update(self._handle_detection_confidence)
+                self.detection_confidence_slider.on_update(self._handle_confidence_update)
 
-                # Detection model selection dropdown
+                # Restore detection model selection dropdown
                 self.detection_model_dropdown = server.add_gui_dropdown(
                     "Detection Model",
                     options=["grounding_dino", "yolo", "sahi"],
-                    initial_value=self.detection_model,
+                    initial_value=self.detection_model if hasattr(self, 'detection_model') else "grounding_dino",
                     hint="Select detection model to use"
                 )
-                self.detection_model_dropdown.on_update(self._handle_detection_model_switch)
-
-                # Grounding DINO text prompt
-                self.detection_text_prompt = server.add_gui_text(
-                    "Text Prompt",
-                    initial_value="car",
-                    hint="Text prompt for Grounding DINO (use '.' to separate objects)"
-                )
-                self.detection_text_prompt.on_update(self._handle_detection_text_prompt)
+                self.detection_model_dropdown.on_update(lambda event: self._handle_detection_model_switch(event, server))
 
                 self.draw_labels_checkbox = server.add_gui_checkbox(
                     "Draw Labels",
                     initial_value=True,
-                    hint="Draw class labels on detections"
+                    hint="Show detection class labels"
                 )
-                self.draw_labels_checkbox.on_update(self._handle_detection_draw_options)
+                self.draw_labels_checkbox.on_update(self._handle_draw_labels_update)
 
                 self.draw_confidence_checkbox = server.add_gui_checkbox(
                     "Draw Confidence",
                     initial_value=True,
-                    hint="Draw confidence scores on detections"
+                    hint="Show detection confidence scores"
                 )
-                self.draw_confidence_checkbox.on_update(self._handle_detection_draw_options)
+                self.draw_confidence_checkbox.on_update(self._handle_draw_confidence_update)
+
+                # Text prompt for Grounding DINO
+                self.text_prompt_input = server.add_gui_text(
+                    "Text Prompt",
+                    initial_value="car",
+                    hint="Text prompt for Grounding DINO (ignored for YOLO/SAHI)"
+                )
+                self.text_prompt_input.on_update(self._handle_text_prompt_update)
+
+                # Checkbox group for YOLO/SAHI class selection
+                self.class_checkbox_folder = server.add_gui_folder("Detection Classes")
+                self.class_checkboxes = dict()
+                self.class_checkbox_folder.visible = False  # Only show for YOLO/SAHI
+                # The checkboxes will be created dynamically when the detection model changes
 
         if self.show_edit_panel is True:
             with tabs.add_tab("Edit") as edit_tab:
@@ -497,6 +503,9 @@ class Viewer:
                     background_color=self.background_color,
                     sh_degree=self.sh_degree,
                 )
+
+        # Store selected classes
+        self.selected_detection_classes = []
 
         while True:
             time.sleep(999)
@@ -562,35 +571,77 @@ class Viewer:
             client_thread.toggle_detection(enable)
         self._handle_option_updated(event)
 
-    def _handle_detection_confidence(self, event):
+    def _handle_confidence_update(self, event):
         """Handle detection confidence threshold change."""
         confidence = self.detection_confidence_slider.value
         for client_id, client_thread in self.clients.items():
             client_thread.set_detection_confidence(confidence)
         self._handle_option_updated(event)
 
-    def _handle_detection_draw_options(self, event):
+    def _handle_draw_labels_update(self, event):
         """Handle detection drawing options change."""
         draw_labels = self.draw_labels_checkbox.value
-        draw_confidence = self.draw_confidence_checkbox.value
         for client_id, client_thread in self.clients.items():
-            client_thread.set_detection_draw_options(draw_labels, draw_confidence)
+            client_thread.set_detection_draw_options(draw_labels, self.draw_confidence_checkbox.value)
         self._handle_option_updated(event)
 
-    def _handle_detection_text_prompt(self, event):
+    def _handle_draw_confidence_update(self, event):
+        """Handle detection drawing options change."""
+        draw_confidence = self.draw_confidence_checkbox.value
+        for client_id, client_thread in self.clients.items():
+            client_thread.set_detection_draw_options(self.draw_labels_checkbox.value, draw_confidence)
+        self._handle_option_updated(event)
+
+    def _handle_text_prompt_update(self, event):
         """Handle detection text prompt change."""
-        text_prompt = self.detection_text_prompt.value
+        text_prompt = self.text_prompt_input.value
         for client_id, client_thread in self.clients.items():
             client_thread.set_detection_text_prompt(text_prompt)
         self._handle_option_updated(event)
 
-    def _handle_detection_model_switch(self, event):
-        """Handle detection model switch from dropdown."""
+    def _handle_class_checkbox_update(self, event=None):
+        """Update selected classes when any class checkbox is toggled."""
+        self.selected_detection_classes = [
+            class_name for class_name, checkbox in self.class_checkboxes.items() if checkbox.value
+        ]
+        for client_id, client_thread in self.clients.items():
+            client_thread.set_detection_classes(self.selected_detection_classes)
+        self._handle_option_updated(event)
+
+    def _handle_detection_model_switch(self, event, server):
         new_model = self.detection_model_dropdown.value
         self.detection_model = new_model
+        # Update UI visibility
+        self.class_checkbox_folder.visible = new_model in ["yolo", "sahi"]
+        self.text_prompt_input.visible = new_model == "grounding_dino"
+        # Update class checkboxes for YOLO/SAHI
+        # Remove old checkboxes
+        for checkbox in self.class_checkboxes.values():
+            checkbox.remove()
+        self.class_checkboxes.clear()
+        if new_model in ["yolo", "sahi"]:
+            # Get class names from the detection model (from any client)
+            class_names = []
+            for client_thread in self.clients.values():
+                if client_thread.detection_model is not None and hasattr(client_thread.detection_model, "class_names"):
+                    class_names = client_thread.detection_model.class_names
+                    break
+            # Create a checkbox for each class inside the folder context
+            with self.class_checkbox_folder:
+                for class_name in class_names:
+                    checkbox = server.add_gui_checkbox(
+                        class_name,
+                        initial_value=False,
+                        hint=f"Enable detection for class: {class_name}"
+                    )
+                    checkbox.on_update(self._handle_class_checkbox_update)
+                    self.class_checkboxes[class_name] = checkbox
+            self.selected_detection_classes = []
+            for client_id, client_thread in self.clients.items():
+                client_thread.set_detection_classes(self.selected_detection_classes)
+        self._handle_option_updated(event)
         for client_id, client_thread in self.clients.items():
             client_thread.switch_detection_model(new_model)
-        self._handle_option_updated(event)
 
     def rerender_for_client(self, client_id: int):
         """
@@ -618,6 +669,10 @@ class Viewer:
         client_thread.start()
         # store this thread
         self.clients[client.client_id] = client_thread
+
+        # After client is ready, trigger detection model UI update
+        if hasattr(self, 'on_first_client_ready'):
+            self.on_first_client_ready()
 
     def _handle_client_disconnect(self, client: viser.ClientHandle):
         """

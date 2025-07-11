@@ -37,6 +37,7 @@ class ClientThread(threading.Thread):
         self.detection_model = None
         self.detection_processor = None
         self.enable_detection = False
+        self.selected_detection_classes = []  # Store selected classes for YOLO/SAHI
         self._initialize_detection()
 
         client.camera.up_direction = viewer.up_direction
@@ -120,20 +121,21 @@ class ClientThread(threading.Thread):
 
             with torch.no_grad():
                 image = self.renderer.get_outputs(camera, scaling_modifier=self.viewer.scaling_modifier.value)
-     
+
                 image = torch.clamp(image, max=1.)
                 image = torch.permute(image, (1, 2, 0))
-        
+
                 # Convert to numpy array for detection processing
                 image_np = image.cpu().numpy()
-                
+
                 # Apply detection if enabled
                 if self.enable_detection and self.detection_processor is not None:
                     try:
-                        image_np = self.detection_processor.process_image(image_np)
+                        # Pass selected classes for YOLO/SAHI
+                        image_np = self.detection_processor.process_image(image_np, selected_classes=self.selected_detection_classes)
                     except Exception as e:
                         print(f"Detection processing error: {e}")
-                
+
                 self.client.set_background_image(
                     image_np,
                     format=self.viewer.image_format,
@@ -205,6 +207,12 @@ class ClientThread(threading.Thread):
         """Set text prompt for Grounding DINO detection."""
         if self.detection_processor is not None:
             self.detection_processor.set_text_prompt(text_prompt)
+
+    def set_detection_classes(self, selected_classes):
+        """Set selected detection classes for YOLO/SAHI."""
+        self.selected_detection_classes = selected_classes
+        if self.detection_processor is not None:
+            self.detection_processor.set_selected_classes(selected_classes)
 
     def switch_detection_model(self, new_model_name: str):
         """Switch the detection model at runtime."""

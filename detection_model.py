@@ -60,8 +60,14 @@ class DetectionModel:
 
     def _initialize_yolo(self):
         """Initialize YOLO model using ultralytics."""   
-        self.model = YOLO('weights/yolo11x.pt')
-        self.model.to(self.device)
+        model_path = 'weights/yolo11x.pt'
+        if model_path is None:
+            model_path = ''
+        if not isinstance(model_path, str):
+            model_path = str(model_path)
+        device = self.device if self.device is not None else 'cpu'
+        self.model = YOLO(model_path)
+        self.model.to(device)
         # Get class names from the model
         self.class_names = list(self.model.names.values())
         print(f"Loaded Ultralytics YOLO model with {len(self.class_names)} classes")
@@ -144,12 +150,18 @@ class DetectionModel:
             print(f"Failed to download Grounding DINO: {e}")
     
     def _initialize_sahi(self):
-        # Use YOLOv8 as the default model for SAHI, or allow customization
+        # Use yolov11 as the default model for SAHI, or allow customization
+        model_path = "weights/yolo11x.pt"
+        if model_path is None:
+            model_path = ''
+        if not isinstance(model_path, str):
+            model_path = str(model_path)
+        device = self.device if self.device is not None else 'cpu'
         self.sahi_detection_model = AutoDetectionModel.from_pretrained(
             model_type="ultralytics",
-            model_path="weights/yolo11x.pt",
+            model_path=model_path,
             confidence_threshold=0.25,
-            device=self.device
+            device=device
         )
         # Try to get class names from category_mapping if available
         try:
@@ -161,7 +173,7 @@ class DetectionModel:
         except Exception as e:
             print(f"Warning: Could not extract class names from SAHI detection model: {e}")
             self.class_names = []
-        print(f"Loaded SAHI with YOLOv8 model and {len(self.class_names)} classes")
+        print(f"Loaded SAHI with yolov11 model and {len(self.class_names)} classes")
 
     def preprocess_image(self, image: np.ndarray) -> torch.Tensor:
         """Preprocess image for detection model."""
@@ -175,13 +187,16 @@ class DetectionModel:
         if image.dtype == np.float32:
             image = (image * 255).astype(np.uint8)
         pil_image = Image.fromarray(image)
-        
         transform = transforms.Compose([
             transforms.ToTensor(),
         ])
-        return transform(pil_image).to(self.device)
+        tensor = transform(pil_image)
+        import torch
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError("Transform did not return a torch.Tensor")
+        return tensor.to(self.device)
     
-    def detect(self, image: np.ndarray, confidence_threshold: float = 0.25, text_prompt: str = None) -> List[dict]:
+    def detect(self, image: np.ndarray, confidence_threshold: float = 0.25, text_prompt: str = None, selected_classes=None) -> List[dict]:
         """
         Detect objects in the image.
         
@@ -189,34 +204,40 @@ class DetectionModel:
             image: Input image as numpy array (H, W, C) in RGB format
             confidence_threshold: Minimum confidence for detections
             text_prompt: Text prompt for Grounding DINO (only used for grounding_dino model)
+            selected_classes: List of class names to filter detections (YOLO/SAHI)
             
         Returns:
             List of detection dictionaries with keys: 'bbox', 'confidence', 'class_id', 'class_name'
         """
         with torch.no_grad():
             if self.model_name.lower() == "yolo":
-                return self._detect_yolo(image, confidence_threshold)
+                result = self._detect_yolo(image, confidence_threshold, selected_classes=selected_classes)
+                return result if result is not None else []
             elif self.model_name.lower() == "faster_rcnn":
-                return self._detect_faster_rcnn(image, confidence_threshold)
+                result = self._detect_faster_rcnn(image, confidence_threshold)
+                return result if result is not None else []
             elif self.model_name.lower() == "grounding_dino":
-                return self._detect_grounding_dino(image, confidence_threshold, text_prompt)
+                # Always pass a string for text_prompt
+                prompt = text_prompt if text_prompt is not None else self.text_prompt
+                if prompt is None:
+                    prompt = ""
+                result = self._detect_grounding_dino(image, confidence_threshold, prompt)
+                return result if result is not None else []
             elif self.model_name.lower() == "sahi":
-                return self._detect_sahi(image, confidence_threshold)
+                result = self._detect_sahi(image, confidence_threshold, selected_classes=selected_classes)
+                return result if result is not None else []
             else:
-                raise ValueError(f"Unsupported model: {self.model_name}")
+                return []
     
-    def _detect_yolo(self, image: np.ndarray, confidence_threshold: float) -> List[dict]:
+    def _detect_yolo(self, image: np.ndarray, confidence_threshold: float, selected_classes=None) -> List[dict]:
         """Detect objects using YOLO model."""
-        if hasattr(self.model, 'predict'):  # Ultralytics YOLO
+        if self.model is None:
+            raise RuntimeError("YOLO model is not initialized.")
+        if hasattr(self.model, 'predict'):
             if image.dtype == np.float32:
                 image = (image * 255).astype(np.uint8)
-            # image = Image.fromarray(image)
-            print("image.shape", image.shape)
             results = self.model(image, conf=confidence_threshold)
-            # print(results)
-            # results = self.model(image)
             detections = []
-            
             for result in results:
                 boxes = result.boxes
                 if boxes is not None:
@@ -224,15 +245,16 @@ class DetectionModel:
                         x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                         confidence = box.conf[0].cpu().numpy()
                         class_id = int(box.cls[0].cpu().numpy())
-                        
-                        detections.append({
-                            'bbox': [x1, y1, x2, y2],
-                            'confidence': float(confidence),
-                            'class_id': class_id,
-                            'class_name': self.class_names[class_id]
-                        })
-            
+                        class_name = self.class_names[class_id]
+                        if (selected_classes is None) or (class_name in selected_classes):
+                            detections.append({
+                                'bbox': [x1, y1, x2, y2],
+                                'confidence': float(confidence),
+                                'class_id': class_id,
+                                'class_name': class_name
+                            })
             return detections
+        return []
     
     def _detect_faster_rcnn(self, image: np.ndarray, confidence_threshold: float) -> List[dict]:
         """Detect objects using Faster R-CNN model."""
@@ -273,30 +295,29 @@ class DetectionModel:
     def _detect_grounding_dino(self, image: np.ndarray, confidence_threshold: float, text_prompt: str = None) -> List[dict]:
         """Detect objects using Grounding DINO model."""
         try:
-            
-            
             # Use provided text prompt or default
             if text_prompt is None:
                 text_prompt = self.text_prompt
-            
+            if text_prompt is None:
+                text_prompt = ""
             # preprocess image
             transformed_image = self.gdino_preprocess_image(image)
-            
             # Run prediction
+            from groundingdino.util.inference import predict
+            if predict is None:
+                raise RuntimeError("predict function is not available.")
             boxes, logits, phrases = predict(
                 model=self.model,
                 image=transformed_image,
-                caption=text_prompt,
+                caption=text_prompt if text_prompt is not None else "",
                 box_threshold=confidence_threshold,
                 text_threshold=confidence_threshold,
-                device = self.device
+                device = self.device if self.device is not None else 'cpu'
             )
-            
             detections = []
             if boxes is not None and len(boxes) > 0:
                 boxes = boxes.cpu().numpy()
                 logits = logits.cpu().numpy()
-                
                 for i, (box, logit, phrase) in enumerate(zip(boxes, logits, phrases)):
                     detections.append({
                         'bbox': box.tolist(),
@@ -304,19 +325,17 @@ class DetectionModel:
                         'class_id': i,
                         'class_name': phrase.strip()
                     })
-            
             return detections
-            
         except Exception as e:
             traceback.print_exc()
-            # print(f"Grounding DINO detection error: {e}")
             return []
     
-    def _detect_sahi(self, image: np.ndarray, confidence_threshold: float) -> List[dict]:
-        """Detect objects using SAHI (sliced inference with YOLOv8)."""
+    def _detect_sahi(self, image: np.ndarray, confidence_threshold: float, selected_classes=None) -> List[dict]:
+        """Detect objects using SAHI (sliced inference with yolov11)."""
         if self.sahi_detection_model is None:
             self._initialize_sahi()
-        # SAHI expects uint8 images
+        if self.sahi_detection_model is None:
+            raise RuntimeError("SAHI detection model is not initialized.")
         if image.dtype == np.float32:
             image = (image * 255).astype(np.uint8)
         try:
@@ -327,17 +346,20 @@ class DetectionModel:
                 slice_width=self.sahi_slice_width,
                 overlap_height_ratio=self.sahi_overlap_height_ratio,
                 overlap_width_ratio=self.sahi_overlap_width_ratio,
-                verbose=0
+                # verbose=0
             )
             detections = []
             for obj in result.object_prediction_list:
                 bbox = obj.bbox.to_voc_bbox()
-                detections.append({
-                    'bbox': [bbox[0], bbox[1], bbox[2], bbox[3]],
-                    'confidence': float(obj.score.value),
-                    'class_id': obj.category.id if obj.category else -1,
-                    'class_name': obj.category.name if obj.category else str(obj.category)
-                })
+                class_id = obj.category.id if obj.category else -1
+                class_name = obj.category.name if obj.category else str(obj.category)
+                if (selected_classes is None) or (class_name in selected_classes):
+                    detections.append({
+                        'bbox': [bbox[0], bbox[1], bbox[2], bbox[3]],
+                        'confidence': float(obj.score.value),
+                        'class_id': class_id,
+                        'class_name': class_name
+                    })
             return detections
         except Exception as e:
             print(f"SAHI detection error: {e}")
@@ -427,35 +449,34 @@ class DetectionProcessor:
         self.draw_labels = True
         self.draw_confidence = True
         self.text_prompt = None  # For Grounding DINO
+        self.selected_classes = None  # For YOLO/SAHI
     
-    def process_image(self, image: np.ndarray) -> np.ndarray:
+    def process_image(self, image: np.ndarray, selected_classes=None) -> np.ndarray:
         """
         Process an image with object detection.
         
         Args:
             image: Input image as numpy array (H, W, C) in RGB format
-            
+            selected_classes: List of class names to filter detections (YOLO/SAHI)
         Returns:
             Processed image with detections drawn
         """
         if not self.enable_detection:
             return image
-        
         try:
             # Run detection
+            text_prompt = self.text_prompt if self.text_prompt is not None else ""
             detections = self.detection_model.detect(
                 image, 
                 self.confidence_threshold, 
-                self.text_prompt
+                text_prompt,
+                selected_classes=selected_classes or self.selected_classes
             )
-
             # Draw detections on image
             processed_image = self.detection_model.draw_detections(
                 image, detections, self.draw_labels, self.draw_confidence
             )
-            
             return processed_image
-            
         except Exception as e:
             print(f"Error in detection processing: {e}")
             traceback.print_exc()
@@ -477,3 +498,7 @@ class DetectionProcessor:
     def set_text_prompt(self, text_prompt: str):
         """Set text prompt for Grounding DINO."""
         self.text_prompt = text_prompt 
+
+    def set_selected_classes(self, selected_classes):
+        """Set selected classes for YOLO/SAHI."""
+        self.selected_classes = selected_classes 
