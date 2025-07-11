@@ -88,7 +88,7 @@ processed_image = detection_processor.process_image(image)
 - **Default Text Prompt**: Common objects like person, car, furniture, electronics
 
 ### YOLO (Fallback)
-- **Default**: Uses YOLOv8n from ultralytics
+- **Default**: Uses YOLOv11n from ultralytics
 - **Alternative**: Uses torchvision YOLO if ultralytics is not available
 - **Classes**: 80 COCO classes (person, car, dog, etc.)
 - **Usage**: Automatically used if Grounding DINO is not available
@@ -143,7 +143,7 @@ To use custom detection models:
 - **GPU Memory**: Detection models require additional GPU memory
 - **Processing Time**: Detection adds latency to rendering (typically 10-50ms per frame)
 - **Resolution**: Higher resolution images take longer to process
-- **Model Size**: Larger models (YOLOv8x vs YOLOv8n) are more accurate but slower
+- **Model Size**: Larger models (YOLOv11x vs YOLOv11n) are more accurate but slower
 
 ## Troubleshooting
 
@@ -156,7 +156,7 @@ To use custom detection models:
 
 2. **CUDA Out of Memory**:
    - Reduce image resolution in viewer settings
-   - Use smaller detection models (YOLOv8n instead of YOLOv8x)
+   - Use smaller detection models (YOLOv11n instead of YOLOv11x)
    - Close other GPU applications
 
 3. **Slow Performance**:

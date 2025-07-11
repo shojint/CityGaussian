@@ -43,6 +43,8 @@ def main():
     parser.add_argument("--detection-model", type=str, default="grounding_dino",
                         choices=["grounding_dino", "yolo", "sahi"],
                         help="Detection model to use (grounding_dino, yolo, or sahi)")
+    parser.add_argument("--detection-gpus", type=str, default=None,
+                        help="Comma-separated list of GPU IDs for detection models (e.g., 0,1). Default: use all available GPUs.")
     
     args = parser.parse_args()
 
@@ -81,6 +83,10 @@ def main():
 
     # Create and start viewer
     viewer_init_args = {key: getattr(args, key) for key in vars(args)}
+    # Pass detection_gpus as a separate argument if present
+    if args.detection_gpus is not None:
+        viewer_init_args["detection_gpus"] = args.detection_gpus
+    
     viewer = Viewer(**viewer_init_args)
     
     try:
