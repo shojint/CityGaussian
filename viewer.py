@@ -448,7 +448,7 @@ class Viewer:
                 # Detection model selection dropdown
                 self.detection_model_dropdown = server.add_gui_dropdown(
                     "Detection Model",
-                    options=["grounding_dino", "yolo"],
+                    options=["grounding_dino", "yolo", "sahi"],
                     initial_value=self.detection_model,
                     hint="Select detection model to use"
                 )

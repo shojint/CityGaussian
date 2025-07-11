@@ -41,8 +41,8 @@ def main():
     parser.add_argument("--cameras-json", "--cameras_json", type=str, default=None,
                         help="Path to cameras.json file")
     parser.add_argument("--detection-model", type=str, default="grounding_dino",
-                        choices=["grounding_dino", "yolo"],
-                        help="Detection model to use (grounding_dino or yolo)")
+                        choices=["grounding_dino", "yolo", "sahi"],
+                        help="Detection model to use (grounding_dino, yolo, or sahi)")
     
     args = parser.parse_args()
 
@@ -58,11 +58,13 @@ def main():
     print("Starting CityGaussian viewer with Grounding DINO detection...")
     print(f"Model path: {args.model_path}")
     print(f"Server: http://{args.host}:{args.port}")
-    print("\nGrounding DINO Features:")
-    print("- Text-guided object detection")
+    print("\nGrounding DINO / YOLO / SAHI Features:")
+    print("- Text-guided object detection (Grounding DINO)")
+    print("- Fast COCO detection (YOLO)")
+    print("- Sliced inference for large images (SAHI)")
     print("- Enable/disable detection via UI")
     print("- Adjust detection confidence threshold")
-    print("- Customize text prompts for specific objects")
+    print("- Customize text prompts for specific objects (Grounding DINO)")
     print("- Toggle detection labels and confidence scores")
     print("- Real-time object detection on rendered images")
     print("\nInstructions:")

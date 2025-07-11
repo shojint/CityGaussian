@@ -22,6 +22,10 @@ import urllib.request
 from ultralytics import YOLO
 import traceback
 
+from sahi.predict import get_sliced_prediction
+from sahi import AutoDetectionModel
+
+
 
 class DetectionModel:
     """
@@ -35,6 +39,12 @@ class DetectionModel:
         self.model = self.transform = None
         self.class_names = []
         self.text_prompt = "car"
+        # SAHI-specific attributes
+        self.sahi_detection_model = None
+        self.sahi_slice_height = 512
+        self.sahi_slice_width = 512
+        self.sahi_overlap_height_ratio = 0.2
+        self.sahi_overlap_width_ratio = 0.2
         self.initialize_model()
     
     def initialize_model(self):
@@ -43,6 +53,8 @@ class DetectionModel:
             self._initialize_yolo()
         elif self.model_name.lower() == "grounding_dino":
             self._initialize_grounding_dino()
+        elif self.model_name.lower() == "sahi":
+            self._initialize_sahi()
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")
 
@@ -131,6 +143,26 @@ class DetectionModel:
         except Exception as e:
             print(f"Failed to download Grounding DINO: {e}")
     
+    def _initialize_sahi(self):
+        # Use YOLOv8 as the default model for SAHI, or allow customization
+        self.sahi_detection_model = AutoDetectionModel.from_pretrained(
+            model_type="ultralytics",
+            model_path="weights/yolo11x.pt",
+            confidence_threshold=0.25,
+            device=self.device
+        )
+        # Try to get class names from category_mapping if available
+        try:
+            if hasattr(self.sahi_detection_model, 'category_mapping') and self.sahi_detection_model.category_mapping:
+                # category_mapping is a dict: {id: name}
+                self.class_names = list(self.sahi_detection_model.category_mapping.values())
+            else:
+                self.class_names = []
+        except Exception as e:
+            print(f"Warning: Could not extract class names from SAHI detection model: {e}")
+            self.class_names = []
+        print(f"Loaded SAHI with YOLOv8 model and {len(self.class_names)} classes")
+
     def preprocess_image(self, image: np.ndarray) -> torch.Tensor:
         """Preprocess image for detection model."""
         if self.model_name.lower() == "faster_rcnn":
@@ -168,6 +200,8 @@ class DetectionModel:
                 return self._detect_faster_rcnn(image, confidence_threshold)
             elif self.model_name.lower() == "grounding_dino":
                 return self._detect_grounding_dino(image, confidence_threshold, text_prompt)
+            elif self.model_name.lower() == "sahi":
+                return self._detect_sahi(image, confidence_threshold)
             else:
                 raise ValueError(f"Unsupported model: {self.model_name}")
     
@@ -278,6 +312,38 @@ class DetectionModel:
             # print(f"Grounding DINO detection error: {e}")
             return []
     
+    def _detect_sahi(self, image: np.ndarray, confidence_threshold: float) -> List[dict]:
+        """Detect objects using SAHI (sliced inference with YOLOv8)."""
+        if self.sahi_detection_model is None:
+            self._initialize_sahi()
+        # SAHI expects uint8 images
+        if image.dtype == np.float32:
+            image = (image * 255).astype(np.uint8)
+        try:
+            result = get_sliced_prediction(
+                image,
+                self.sahi_detection_model,
+                slice_height=self.sahi_slice_height,
+                slice_width=self.sahi_slice_width,
+                overlap_height_ratio=self.sahi_overlap_height_ratio,
+                overlap_width_ratio=self.sahi_overlap_width_ratio,
+                verbose=0
+            )
+            detections = []
+            for obj in result.object_prediction_list:
+                bbox = obj.bbox.to_voc_bbox()
+                detections.append({
+                    'bbox': [bbox[0], bbox[1], bbox[2], bbox[3]],
+                    'confidence': float(obj.score.value),
+                    'class_id': obj.category.id if obj.category else -1,
+                    'class_name': obj.category.name if obj.category else str(obj.category)
+                })
+            return detections
+        except Exception as e:
+            print(f"SAHI detection error: {e}")
+            traceback.print_exc()
+            return []
+
     def draw_detections(self, image: np.ndarray, detections: List[dict], 
                        draw_labels: bool = True, draw_confidence: bool = True) -> np.ndarray:
         """
