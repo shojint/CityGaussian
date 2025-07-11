@@ -127,12 +127,6 @@ class ClientThread(threading.Thread):
                 # Convert to numpy array for detection processing
                 image_np = image.cpu().numpy()
                 
-                # if image_np.dtype == np.float32:
-                #     image_np_uint8 = (image_np * 255).astype(np.uint8)
-                # img = Image.fromarray(image_np_uint8)
-                # # Save the image
-                # img.save('output_image_2.png')
-                
                 # Apply detection if enabled
                 if self.enable_detection and self.detection_processor is not None:
                     try:
@@ -211,3 +205,31 @@ class ClientThread(threading.Thread):
         """Set text prompt for Grounding DINO detection."""
         if self.detection_processor is not None:
             self.detection_processor.set_text_prompt(text_prompt)
+
+    def switch_detection_model(self, new_model_name: str):
+        """Switch the detection model at runtime."""
+        if self.detection_model_name == new_model_name:
+            return  # No change
+        self.detection_model_name = new_model_name
+        prev_enable = self.enable_detection
+        prev_confidence = None
+        prev_draw_labels = None
+        prev_draw_confidence = None
+        prev_text_prompt = None
+        if self.detection_processor is not None:
+            try:
+                prev_confidence = getattr(self.detection_processor, 'confidence_threshold', None)
+                prev_draw_labels = getattr(self.detection_processor, 'draw_labels', None)
+                prev_draw_confidence = getattr(self.detection_processor, 'draw_confidence', None)
+                prev_text_prompt = getattr(self.detection_processor, 'text_prompt', None)
+            except Exception:
+                pass
+        self._initialize_detection()
+        # Restore previous settings if possible
+        self.toggle_detection(prev_enable)
+        if prev_confidence is not None:
+            self.set_detection_confidence(prev_confidence)
+        if prev_draw_labels is not None and prev_draw_confidence is not None:
+            self.set_detection_draw_options(prev_draw_labels, prev_draw_confidence)
+        if prev_text_prompt is not None:
+            self.set_detection_text_prompt(prev_text_prompt)

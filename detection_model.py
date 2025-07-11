@@ -34,7 +34,7 @@ class DetectionModel:
         self.device = device
         self.model = self.transform = None
         self.class_names = []
-        self.text_prompt = "person . car . bicycle . motorcycle . bus . truck . chair . table . bottle . cup . book . cell phone . laptop . mouse . keyboard . tv . remote ."
+        self.text_prompt = "car"
         self.initialize_model()
     
     def initialize_model(self):

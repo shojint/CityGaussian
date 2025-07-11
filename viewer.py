@@ -445,10 +445,19 @@ class Viewer:
                 )
                 self.detection_confidence_slider.on_update(self._handle_detection_confidence)
 
+                # Detection model selection dropdown
+                self.detection_model_dropdown = server.add_gui_dropdown(
+                    "Detection Model",
+                    options=["grounding_dino", "yolo"],
+                    initial_value=self.detection_model,
+                    hint="Select detection model to use"
+                )
+                self.detection_model_dropdown.on_update(self._handle_detection_model_switch)
+
                 # Grounding DINO text prompt
                 self.detection_text_prompt = server.add_gui_text(
                     "Text Prompt",
-                    initial_value="person . car . bicycle . motorcycle . bus . truck . chair . table . bottle . cup . book . cell phone . laptop . mouse . keyboard . tv . remote .",
+                    initial_value="car",
                     hint="Text prompt for Grounding DINO (use '.' to separate objects)"
                 )
                 self.detection_text_prompt.on_update(self._handle_detection_text_prompt)
@@ -573,6 +582,14 @@ class Viewer:
         text_prompt = self.detection_text_prompt.value
         for client_id, client_thread in self.clients.items():
             client_thread.set_detection_text_prompt(text_prompt)
+        self._handle_option_updated(event)
+
+    def _handle_detection_model_switch(self, event):
+        """Handle detection model switch from dropdown."""
+        new_model = self.detection_model_dropdown.value
+        self.detection_model = new_model
+        for client_id, client_thread in self.clients.items():
+            client_thread.switch_detection_model(new_model)
         self._handle_option_updated(event)
 
     def rerender_for_client(self, client_id: int):
