@@ -33,10 +33,9 @@ class DetectionModel:
     This class provides a common interface for different detection models.
     """
     
-    def __init__(self, model_name: str = "grounding_dino", device: str = "cuda", device_ids: list = None):
+    def __init__(self, model_name: str = "grounding_dino", device: str = "cuda"):
         self.model_name = model_name
         self.device = device
-        self.device_ids = device_ids if device_ids is not None else []
         self.model = self.transform = None
         self.class_names = []
         self.text_prompt = "car"
@@ -63,8 +62,7 @@ class DetectionModel:
         """Initialize YOLO model using ultralytics."""   
         self.model = YOLO('weights/yolo11x.pt')
         self.model.to(self.device)
-        if self.device_ids and len(self.device_ids) > 1:
-            self.model.model = torch.nn.DataParallel(self.model.model, device_ids=self.device_ids)
+        # Get class names from the model
         self.class_names = list(self.model.names.values())
         print(f"Loaded Ultralytics YOLO model with {len(self.class_names)} classes")
     
@@ -112,8 +110,6 @@ class DetectionModel:
             checkpoint = torch.load(checkpoint_path, map_location=self.device)
             self.model.load_state_dict(clean_state_dict(checkpoint['model']), strict=False)
             self.model.to(self.device)
-            if self.device_ids and len(self.device_ids) > 1:
-                self.model = torch.nn.DataParallel(self.model, device_ids=self.device_ids)
             self.model.eval()
             
             # Set up text prompt classes
@@ -148,14 +144,12 @@ class DetectionModel:
             print(f"Failed to download Grounding DINO: {e}")
     
     def _initialize_sahi(self):
-        sahi_device = self.device
-        if self.device_ids and len(self.device_ids) > 1:
-            sahi_device = f"cuda:{self.device_ids[0]}"  # SAHI does not support DataParallel, use first GPU
+        # Use YOLOv8 as the default model for SAHI, or allow customization
         self.sahi_detection_model = AutoDetectionModel.from_pretrained(
             model_type="ultralytics",
             model_path="weights/yolo11x.pt",
             confidence_threshold=0.25,
-            device=sahi_device
+            device=self.device
         )
         # Try to get class names from category_mapping if available
         try:
@@ -167,7 +161,7 @@ class DetectionModel:
         except Exception as e:
             print(f"Warning: Could not extract class names from SAHI detection model: {e}")
             self.class_names = []
-        print(f"Loaded SAHI with YOLOv11 model and {len(self.class_names)} classes")
+        print(f"Loaded SAHI with YOLOv8 model and {len(self.class_names)} classes")
 
     def preprocess_image(self, image: np.ndarray) -> torch.Tensor:
         """Preprocess image for detection model."""
@@ -187,7 +181,7 @@ class DetectionModel:
         ])
         return transform(pil_image).to(self.device)
     
-    def detect(self, image: np.ndarray, confidence_threshold: float = 0.25, text_prompt: str = "") -> List[dict]:
+    def detect(self, image: np.ndarray, confidence_threshold: float = 0.25, text_prompt: str = None) -> List[dict]:
         """
         Detect objects in the image.
         
@@ -209,7 +203,7 @@ class DetectionModel:
             elif self.model_name.lower() == "sahi":
                 return self._detect_sahi(image, confidence_threshold)
             else:
-                return []
+                raise ValueError(f"Unsupported model: {self.model_name}")
     
     def _detect_yolo(self, image: np.ndarray, confidence_threshold: float) -> List[dict]:
         """Detect objects using YOLO model."""
@@ -319,7 +313,7 @@ class DetectionModel:
             return []
     
     def _detect_sahi(self, image: np.ndarray, confidence_threshold: float) -> List[dict]:
-        """Detect objects using SAHI (sliced inference with YOLOv11)."""
+        """Detect objects using SAHI (sliced inference with YOLOv8)."""
         if self.sahi_detection_model is None:
             self._initialize_sahi()
         # SAHI expects uint8 images
@@ -333,7 +327,7 @@ class DetectionModel:
                 slice_width=self.sahi_slice_width,
                 overlap_height_ratio=self.sahi_overlap_height_ratio,
                 overlap_width_ratio=self.sahi_overlap_width_ratio,
-                # verbose=0
+                verbose=0
             )
             detections = []
             for obj in result.object_prediction_list:

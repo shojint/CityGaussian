@@ -34,7 +34,6 @@ class Viewer:
             show_cameras: bool = False,
             cameras_json: str = None,
             detection_model: str = "grounding_dino",
-            detection_gpus: str = None,
     ):
         self.device = torch.device("cuda")
 
@@ -47,7 +46,6 @@ class Viewer:
         self.enable_transform = enable_transform
         self.show_cameras = show_cameras
         self.detection_model = detection_model
-        self.detection_gpus = detection_gpus
 
         self.up_direction = np.asarray([0., 0., 1.])
 
@@ -614,8 +612,9 @@ class Viewer:
         """
         Create and start a thread for every new client
         """
+
         # create client thread
-        client_thread = ClientThread(self, self.viewer_renderer, client, self.detection_model, detection_gpus=self.detection_gpus)
+        client_thread = ClientThread(self, self.viewer_renderer, client, self.detection_model)
         client_thread.start()
         # store this thread
         self.clients[client.client_id] = client_thread
@@ -624,6 +623,7 @@ class Viewer:
         """
         Destroy client thread when client disconnected
         """
+
         try:
             self.clients[client.client_id].stop()
             del self.clients[client.client_id]
@@ -651,7 +651,6 @@ if __name__ == "__main__":
     parser.add_argument("--show_cameras", "--show-cameras",
                         action="store_true")
     parser.add_argument("--cameras-json", "--cameras_json", type=str, default=None)
-    parser.add_argument("--detection_gpus", type=str, default=None)
     args = parser.parse_args()
 
     # arguments post process

@@ -16,13 +16,12 @@ from PIL import Image
 
 
 class ClientThread(threading.Thread):
-    def __init__(self, viewer, renderer, client: viser.ClientHandle, detection_model: str = "grounding_dino", detection_gpus: str = ""):
+    def __init__(self, viewer, renderer, client: viser.ClientHandle, detection_model: str = "grounding_dino"):
         super().__init__()
         self.viewer = viewer
         self.renderer = renderer
         self.client = client
         self.detection_model_name = detection_model
-        self.detection_gpus = detection_gpus or ""
 
         self.render_trigger = threading.Event()
 
@@ -52,16 +51,8 @@ class ClientThread(threading.Thread):
     def _initialize_detection(self):
         """Initialize the detection model and processor."""
         try:
-            device = "cuda"
-            device_ids = []
-            if self.detection_gpus:
-                gpu_list = [int(x) for x in self.detection_gpus.split(",") if x.strip().isdigit()]
-                if len(gpu_list) == 1:
-                    device = f"cuda:{gpu_list[0]}"
-                elif len(gpu_list) > 1:
-                    device = f"cuda:{gpu_list[0]}"  # main device
-                    device_ids = gpu_list
-            self.detection_model = DetectionModel(model_name=self.detection_model_name, device=device, device_ids=device_ids)
+            # Initialize detection model based on argument
+            self.detection_model = DetectionModel(model_name=self.detection_model_name, device="cuda")
             self.detection_processor = DetectionProcessor(self.detection_model, enable_detection=False)
             print(f"{self.detection_model_name} detection model initialized successfully")
         except Exception as e:
@@ -71,7 +62,7 @@ class ClientThread(threading.Thread):
             if self.detection_model_name != "yolo":
                 print("Falling back to YOLO...")
                 try:
-                    self.detection_model = DetectionModel(model_name="yolo", device=device, device_ids=device_ids)
+                    self.detection_model = DetectionModel(model_name="yolo", device="cuda")
                     self.detection_processor = DetectionProcessor(self.detection_model, enable_detection=False)
                     print("YOLO detection model initialized successfully")
                 except Exception as e2:
