@@ -33,6 +33,7 @@ class Viewer:
             enable_transform: bool = False,
             show_cameras: bool = False,
             cameras_json: str = None,
+            detection_model: str = "grounding_dino",
     ):
         self.device = torch.device("cuda")
 
@@ -44,6 +45,7 @@ class Viewer:
         self.sh_degree = sh_degree
         self.enable_transform = enable_transform
         self.show_cameras = show_cameras
+        self.detection_model = detection_model
 
         self.up_direction = np.asarray([0., 0., 1.])
 
@@ -424,6 +426,47 @@ class Viewer:
                 )
                 self.time_slider.on_update(self._handle_option_updated)
 
+            # Add detection controls
+            with server.add_gui_folder("Object Detection"):
+                self.enable_detection_checkbox = server.add_gui_checkbox(
+                    "Enable Detection",
+                    initial_value=False,
+                    hint="Enable object detection on rendered images"
+                )
+                self.enable_detection_checkbox.on_update(self._handle_detection_toggle)
+
+                self.detection_confidence_slider = server.add_gui_slider(
+                    "Detection Confidence",
+                    min=0.1,
+                    max=1.0,
+                    step=0.05,
+                    initial_value=0.25,
+                    hint="Minimum confidence threshold for detections"
+                )
+                self.detection_confidence_slider.on_update(self._handle_detection_confidence)
+
+                # Grounding DINO text prompt
+                self.detection_text_prompt = server.add_gui_text(
+                    "Text Prompt",
+                    initial_value="person . car . bicycle . motorcycle . bus . truck . chair . table . bottle . cup . book . cell phone . laptop . mouse . keyboard . tv . remote .",
+                    hint="Text prompt for Grounding DINO (use '.' to separate objects)"
+                )
+                self.detection_text_prompt.on_update(self._handle_detection_text_prompt)
+
+                self.draw_labels_checkbox = server.add_gui_checkbox(
+                    "Draw Labels",
+                    initial_value=True,
+                    hint="Draw class labels on detections"
+                )
+                self.draw_labels_checkbox.on_update(self._handle_detection_draw_options)
+
+                self.draw_confidence_checkbox = server.add_gui_checkbox(
+                    "Draw Confidence",
+                    initial_value=True,
+                    hint="Draw confidence scores on detections"
+                )
+                self.draw_confidence_checkbox.on_update(self._handle_detection_draw_options)
+
         if self.show_edit_panel is True:
             with tabs.add_tab("Edit") as edit_tab:
                 self.edit_panel = EditPanel(server, self, edit_tab)
@@ -503,6 +546,35 @@ class Viewer:
     def handle_option_updated(self, _):
         return self._handle_option_updated(_)
 
+    def _handle_detection_toggle(self, event):
+        """Handle detection enable/disable toggle."""
+        enable = self.enable_detection_checkbox.value
+        for client_id, client_thread in self.clients.items():
+            client_thread.toggle_detection(enable)
+        self._handle_option_updated(event)
+
+    def _handle_detection_confidence(self, event):
+        """Handle detection confidence threshold change."""
+        confidence = self.detection_confidence_slider.value
+        for client_id, client_thread in self.clients.items():
+            client_thread.set_detection_confidence(confidence)
+        self._handle_option_updated(event)
+
+    def _handle_detection_draw_options(self, event):
+        """Handle detection drawing options change."""
+        draw_labels = self.draw_labels_checkbox.value
+        draw_confidence = self.draw_confidence_checkbox.value
+        for client_id, client_thread in self.clients.items():
+            client_thread.set_detection_draw_options(draw_labels, draw_confidence)
+        self._handle_option_updated(event)
+
+    def _handle_detection_text_prompt(self, event):
+        """Handle detection text prompt change."""
+        text_prompt = self.detection_text_prompt.value
+        for client_id, client_thread in self.clients.items():
+            client_thread.set_detection_text_prompt(text_prompt)
+        self._handle_option_updated(event)
+
     def rerender_for_client(self, client_id: int):
         """
         Render for specific client
@@ -525,7 +597,7 @@ class Viewer:
         """
 
         # create client thread
-        client_thread = ClientThread(self, self.viewer_renderer, client)
+        client_thread = ClientThread(self, self.viewer_renderer, client, self.detection_model)
         client_thread.start()
         # store this thread
         self.clients[client.client_id] = client_thread

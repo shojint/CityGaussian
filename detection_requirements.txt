@@ -1,0 +1,8 @@
+# Detection model dependencies
+torch>=1.9.0
+torchvision>=0.10.0
+opencv-python>=4.5.0
+Pillow>=8.0.0
+ultralytics>=8.0.0  # For YOLO models
+groundingdino-py>=0.4.0  # For Grounding DINO
+numpy>=1.21.0 

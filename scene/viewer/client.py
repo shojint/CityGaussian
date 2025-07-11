@@ -7,14 +7,21 @@ import viser
 import viser.transforms as vtf
 from scene.cameras import ViewerCam
 from utils.graphics_utils import fov2focal, focal2fov
+import sys
+import os
+sys.path.append(os.path.dirname(__file__))
+from detection_model import DetectionModel, DetectionProcessor
+import traceback
+from PIL import Image
 
 
 class ClientThread(threading.Thread):
-    def __init__(self, viewer, renderer, client: viser.ClientHandle):
+    def __init__(self, viewer, renderer, client: viser.ClientHandle, detection_model: str = "grounding_dino"):
         super().__init__()
         self.viewer = viewer
         self.renderer = renderer
         self.client = client
+        self.detection_model_name = detection_model
 
         self.render_trigger = threading.Event()
 
@@ -26,6 +33,12 @@ class ClientThread(threading.Thread):
 
         self.stop_client = False  # whether stop this thread
 
+        # Initialize detection model and processor
+        self.detection_model = None
+        self.detection_processor = None
+        self.enable_detection = False
+        self._initialize_detection()
+
         client.camera.up_direction = viewer.up_direction
 
         @client.camera.on_update
@@ -34,6 +47,28 @@ class ClientThread(threading.Thread):
                 self.last_camera = cam
                 self.state = "low"  # switch to low resolution mode when a new camera received
                 self.render_trigger.set()
+
+    def _initialize_detection(self):
+        """Initialize the detection model and processor."""
+        try:
+            # Initialize detection model based on argument
+            self.detection_model = DetectionModel(model_name=self.detection_model_name, device="cuda")
+            self.detection_processor = DetectionProcessor(self.detection_model, enable_detection=False)
+            print(f"{self.detection_model_name} detection model initialized successfully")
+        except Exception as e:
+            print(f"Failed to initialize {self.detection_model_name} model: {e}")
+            traceback.print_exc()
+            # Optionally, fallback to YOLO if not already YOLO
+            if self.detection_model_name != "yolo":
+                print("Falling back to YOLO...")
+                try:
+                    self.detection_model = DetectionModel(model_name="yolo", device="cuda")
+                    self.detection_processor = DetectionProcessor(self.detection_model, enable_detection=False)
+                    print("YOLO detection model initialized successfully")
+                except Exception as e2:
+                    print(f"Failed to initialize YOLO model: {e2}")
+                    self.detection_model = None
+                    self.detection_processor = None
 
     def render_and_send(self):
         with self.client.atomic():
@@ -85,10 +120,28 @@ class ClientThread(threading.Thread):
 
             with torch.no_grad():
                 image = self.renderer.get_outputs(camera, scaling_modifier=self.viewer.scaling_modifier.value)
+     
                 image = torch.clamp(image, max=1.)
                 image = torch.permute(image, (1, 2, 0))
+        
+                # Convert to numpy array for detection processing
+                image_np = image.cpu().numpy()
+                
+                # if image_np.dtype == np.float32:
+                #     image_np_uint8 = (image_np * 255).astype(np.uint8)
+                # img = Image.fromarray(image_np_uint8)
+                # # Save the image
+                # img.save('output_image_2.png')
+                
+                # Apply detection if enabled
+                if self.enable_detection and self.detection_processor is not None:
+                    try:
+                        image_np = self.detection_processor.process_image(image_np)
+                    except Exception as e:
+                        print(f"Detection processing error: {e}")
+                
                 self.client.set_background_image(
-                    image.cpu().numpy(),
+                    image_np,
                     format=self.viewer.image_format,
                     jpeg_quality=jpeg_quality,
                 )
@@ -136,3 +189,25 @@ class ClientThread(threading.Thread):
         self.renderer = None
         self.client = None
         self.last_camera = None
+
+    def toggle_detection(self, enable: bool):
+        """Enable or disable object detection."""
+        self.enable_detection = enable
+        if self.detection_processor is not None:
+            self.detection_processor.toggle_detection(enable)
+        print(f"Detection {'enabled' if enable else 'disabled'}")
+
+    def set_detection_confidence(self, confidence: float):
+        """Set confidence threshold for detection."""
+        if self.detection_processor is not None:
+            self.detection_processor.set_confidence_threshold(confidence)
+
+    def set_detection_draw_options(self, draw_labels: bool, draw_confidence: bool):
+        """Set drawing options for detection results."""
+        if self.detection_processor is not None:
+            self.detection_processor.set_draw_options(draw_labels, draw_confidence)
+
+    def set_detection_text_prompt(self, text_prompt: str):
+        """Set text prompt for Grounding DINO detection."""
+        if self.detection_processor is not None:
+            self.detection_processor.set_text_prompt(text_prompt)
