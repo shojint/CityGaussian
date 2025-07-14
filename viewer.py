@@ -303,7 +303,7 @@ class Viewer:
             show_logo=False,
         )
         # register hooks
-        server.on_client_connect(self._handle_new_client)
+        server.on_client_connect(lambda client: self._handle_new_client(client, server))
         server.on_client_disconnect(self._handle_client_disconnect)
 
         tabs = server.add_gui_tab_group()
@@ -662,7 +662,7 @@ class Viewer:
         for i in self.clients:
             self.rerender_for_client(i)
 
-    def _handle_new_client(self, client: viser.ClientHandle) -> None:
+    def _handle_new_client(self, client: viser.ClientHandle, server) -> None:
         """
         Create and start a thread for every new client
         """
@@ -674,6 +674,11 @@ class Viewer:
         self.clients[client.client_id] = client_thread
 
         # After client is ready, trigger detection model UI update
+        # This will repopulate the class checkboxes now that a detection model exists
+        if hasattr(self, 'detection_model_dropdown'):
+            self._handle_detection_model_switch(None, server)
+
+        # If there is a custom hook, call it
         if hasattr(self, 'on_first_client_ready'):
             self.on_first_client_ready()
 
