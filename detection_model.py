@@ -236,7 +236,7 @@ class DetectionModel:
         if hasattr(self.model, 'predict'):
             if image.dtype == np.float32:
                 image = (image * 255).astype(np.uint8)
-            results = self.model(image, conf=confidence_threshold)
+            results = self.model(image, conf=confidence_threshold, imgsz=1280)
             detections = []
             for result in results:
                 boxes = result.boxes
