@@ -34,8 +34,11 @@ class Viewer:
             show_cameras: bool = False,
             cameras_json: str = None,
             detection_model: str = "grounding_dino",
+            render_device: str = "cuda:0",
+            detection_device: str = "cuda:1",
     ):
-        self.device = torch.device("cuda")
+        self.device = torch.device(render_device)
+        self.detection_device = detection_device
 
         self.model_path = model_path
         self.host = host
@@ -665,7 +668,7 @@ class Viewer:
         """
 
         # create client thread
-        client_thread = ClientThread(self, self.viewer_renderer, client, self.detection_model)
+        client_thread = ClientThread(self, self.viewer_renderer, client, detection_model=self.detection_model, detection_device=self.detection_device)
         client_thread.start()
         # store this thread
         self.clients[client.client_id] = client_thread

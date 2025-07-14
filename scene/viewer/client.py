@@ -16,12 +16,13 @@ from PIL import Image
 
 
 class ClientThread(threading.Thread):
-    def __init__(self, viewer, renderer, client: viser.ClientHandle, detection_model: str = "grounding_dino"):
+    def __init__(self, viewer, renderer, client: viser.ClientHandle, detection_model: str = "grounding_dino", detection_device: str = "cuda:1"):
         super().__init__()
         self.viewer = viewer
         self.renderer = renderer
         self.client = client
         self.detection_model_name = detection_model
+        self.detection_device = detection_device
 
         self.render_trigger = threading.Event()
 
@@ -53,9 +54,9 @@ class ClientThread(threading.Thread):
         """Initialize the detection model and processor."""
         try:
             # Initialize detection model based on argument
-            self.detection_model = DetectionModel(model_name=self.detection_model_name, device="cuda")
+            self.detection_model = DetectionModel(model_name=self.detection_model_name, device=self.detection_device)
             self.detection_processor = DetectionProcessor(self.detection_model, enable_detection=False)
-            print(f"{self.detection_model_name} detection model initialized successfully")
+            print(f"{self.detection_model_name} detection model initialized successfully on {self.detection_device}")
         except Exception as e:
             print(f"Failed to initialize {self.detection_model_name} model: {e}")
             traceback.print_exc()
@@ -63,9 +64,9 @@ class ClientThread(threading.Thread):
             if self.detection_model_name != "yolo":
                 print("Falling back to YOLO...")
                 try:
-                    self.detection_model = DetectionModel(model_name="yolo", device="cuda")
+                    self.detection_model = DetectionModel(model_name="yolo", device=self.detection_device)
                     self.detection_processor = DetectionProcessor(self.detection_model, enable_detection=False)
-                    print("YOLO detection model initialized successfully")
+                    print(f"YOLO detection model initialized successfully on {self.detection_device}")
                 except Exception as e2:
                     print(f"Failed to initialize YOLO model: {e2}")
                     self.detection_model = None

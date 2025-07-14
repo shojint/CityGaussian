@@ -43,6 +43,8 @@ def main():
     parser.add_argument("--detection-model", type=str, default="grounding_dino",
                         choices=["grounding_dino", "yolo", "sahi"],
                         help="Detection model to use (grounding_dino, yolo, or sahi)")
+    parser.add_argument("--render-gpu", type=int, default=0, help="GPU id for rendering")
+    parser.add_argument("--detection-gpu", type=int, default=1, help="GPU id for detection")
     # parser.add_argument("--detection-gpus", type=str, default=None,
     #                     help="Comma-separated list of GPU IDs for detection models (e.g., 0,1). Default: use all available GPUs.")
     
@@ -83,6 +85,12 @@ def main():
 
     # Create and start viewer
     viewer_init_args = {key: getattr(args, key) for key in vars(args)}
+    # Add device arguments for GPU assignment
+    viewer_init_args["render_device"] = f"cuda:{args.render_gpu}"
+    viewer_init_args["detection_device"] = f"cuda:{args.detection_gpu}"
+    # Remove keys not accepted by Viewer
+    viewer_init_args.pop("render_gpu", None)
+    viewer_init_args.pop("detection_gpu", None)
     # # Pass detection_gpus as a separate argument if present
     # if args.detection_gpus is not None:
     #     viewer_init_args["detection_gpus"] = args.detection_gpus
