@@ -604,9 +604,11 @@ class Viewer:
 
     def _handle_class_checkbox_update(self, event=None):
         """Update selected classes when any class checkbox is toggled."""
-        self.selected_detection_classes = [
+        selected = [
             class_name for class_name, checkbox in self.class_checkboxes.items() if checkbox.value
         ]
+        # If no classes are selected, set to None to show all classes
+        self.selected_detection_classes = selected if selected else None
         for client_id, client_thread in self.clients.items():
             client_thread.set_detection_classes(self.selected_detection_classes)
         self._handle_option_updated(event)
